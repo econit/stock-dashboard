@@ -32,6 +32,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+@st.cache_data(ttl=3600)  # 1시간 동안 캐시 유지
 def fetch_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
     """yfinance로 OHLCV 조회. 실패 시 None."""
     try:
@@ -45,6 +46,16 @@ def fetch_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         return df[required].copy()
     except Exception:
         return None
+
+
+@st.cache_data(ttl=3600)
+def fetch_financial_data(ticker: str):
+    """지표(info)와 재무제표(financials) 조회. 캐싱 처리."""
+    try:
+        stock_obj = yf.Ticker(ticker.strip())
+        return stock_obj.info, stock_obj.financials
+    except Exception:
+        return None, None
 
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
@@ -213,6 +224,56 @@ def build_candlestick_chart(df: pd.DataFrame, ticker: str) -> go.Figure:
     return fig
 
 
+def get_ytd_return(ticker: str) -> float:
+    """올해 초부터 현재까지의 수익률(YTD) 계산."""
+    try:
+        current_year = datetime.now().year
+        first_day = f"{current_year}-01-01"
+        stock = yf.Ticker(ticker)
+        df = stock.history(start=first_day)
+        if df.empty:
+            return None
+        start_price = df["Close"].iloc[0]
+        end_price = df["Close"].iloc[-1]
+        return (end_price - start_price) / start_price * 100
+    except Exception:
+        return None
+
+
+def build_comparison_chart(ticker1: str, ticker2: str) -> go.Figure:
+    """두 회사의 6개월 주가 변동률(%) 비교 차트."""
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=180)
+        
+        df1 = yf.Ticker(ticker1).history(start=start, end=end)
+        df2 = yf.Ticker(ticker2).history(start=start, end=end)
+        
+        if df1.empty or df2.empty:
+            return None
+            
+        # 정규화 (첫날을 0%로)
+        df1_norm = (df1["Close"] / df1["Close"].iloc[0] - 1) * 100
+        df2_norm = (df2["Close"] / df2["Close"].iloc[0] - 1) * 100
+        
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df1_norm.index, y=df1_norm, mode="lines", name=f"{ticker1} (%)"))
+        fig.add_trace(go.Scatter(x=df2_norm.index, y=df2_norm, mode="lines", name=f"{ticker2} (%)"))
+        
+        fig.update_layout(
+            title="최근 6개월 상대 수익률 비교 (Normalized)",
+            template="plotly_white",
+            xaxis_title="날짜",
+            yaxis_title="변동률 (%)",
+            hovermode="x unified",
+            height=500,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        return fig
+    except Exception:
+        return None
+
+
 # ---------- 사이드바 ----------
 st.sidebar.markdown("### ⚙️ 설정")
 ticker = st.sidebar.text_input(
@@ -245,15 +306,15 @@ if run_analysis:
             df = add_indicators(df_raw)
             current_rsi = float(df["RSI"].iloc[-1]) if len(df) else 0
 
-            tab1, tab2 = st.tabs(["📉 차트", "📋 데이터"])
+            tab1, tab2, tab3, tab4 = st.tabs(["📉 차트", "📋 데이터", "📊 재무 분석", "⚖️ 경쟁사 비교"])
 
             with tab1:
+                # ... (보존)
                 fig = build_candlestick_chart(df, ticker.strip())
                 st.plotly_chart(fig, use_container_width=True)
                 st.markdown("---")
                 col1, col2, col3 = st.columns(3)
                 with col2:
-                    rsi_color = "#26a69a" if 30 <= current_rsi <= 70 else "#ef5350"
                     st.metric(
                         label="현재 RSI (14)",
                         value=f"{current_rsi:.1f}",
@@ -264,6 +325,166 @@ if run_analysis:
                 display_df = df.copy()
                 display_df.index.name = "Date"
                 st.dataframe(display_df, use_container_width=True, height=400)
+
+            with tab3:
+                st.subheader(f"🔍 {ticker} 핵심 지표")
+                info, financials = fetch_financial_data(ticker.strip())
+                
+                if info and any(k in info for k in ["marketCap", "forwardPE", "trailingPE", "priceToBook", "returnOnEquity", "dividendYield"]):
+                    try:
+                        # 지표 추출
+                        mkt_cap = info.get("marketCap")
+                        per = info.get("forwardPE") or info.get("trailingPE")
+                        pbr = info.get("priceToBook")
+                        roe = info.get("returnOnEquity")
+                        div_yield = info.get("dividendYield")
+
+                        # 상단 메트릭 5개 컬럼
+                        m_col1, m_col2, m_col3, m_col4, m_col5 = st.columns(5)
+                        
+                        with m_col1:
+                            if mkt_cap:
+                                st.metric("시가총액", f"{mkt_cap/1e12:.2f}조")
+                            else:
+                                st.metric("시가총액", "N/A")
+                        
+                        with m_col2:
+                            st.metric("PER", f"{per:.2f}" if per else "N/A")
+                        
+                        with m_col3:
+                            st.metric("PBR", f"{pbr:.2f}" if pbr else "N/A")
+                        
+                        with m_col4:
+                            st.metric("ROE", f"{roe*100:.2f}%" if roe else "N/A")
+                        
+                        with m_col5:
+                            st.metric("배당수익률", f"{div_yield*100:.2f}%" if div_yield else "N/A")
+
+                        st.markdown("---")
+                        st.subheader("📅 연간 실적 추이 (최근 4년)")
+                        
+                        if financials is not None and not financials.empty:
+                            # 매출액(Total Revenue)과 순이익(Net Income) 추출
+                            rev_key = "Total Revenue"
+                            net_key = "Net Income"
+                            
+                            if rev_key in financials.index and net_key in financials.index:
+                                hist_df = financials.loc[[rev_key, net_key]].T
+                                hist_df.index = hist_df.index.year # 년도만 표시
+                                hist_df = hist_df.sort_index().tail(4) # 최근 4년
+                                
+                                fig_fin = go.Figure()
+                                fig_fin.add_trace(go.Bar(
+                                    x=hist_df.index,
+                                    y=hist_df[rev_key],
+                                    name="매출액",
+                                    marker_color="#636EFA"
+                                ))
+                                fig_fin.add_trace(go.Bar(
+                                    x=hist_df.index,
+                                    y=hist_df[net_key],
+                                    name="순이익",
+                                    marker_color="#EF553B"
+                                ))
+                                
+                                fig_fin.update_layout(
+                                    barmode='group',
+                                    template="plotly_white",
+                                    xaxis_title="연도",
+                                    yaxis_title="금액 (USD)",
+                                    height=450,
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                                )
+                                st.plotly_chart(fig_fin, use_container_width=True)
+                            else:
+                                st.warning("매출액 또는 순이익 데이터를 찾을 수 없습니다.")
+                        else:
+                            st.warning("연간 실적 데이터를 불러올 수 없습니다.")
+                            
+                    except Exception as e:
+                        st.error("재무 정보를 불러오는 중 오류가 발생했습니다.")
+                        st.caption(f"오류 상세: {e}")
+                else:
+                    st.warning("재무 정보를 불러올 수 없습니다.")
+                    st.info("ETF나 일부 종목은 상세 재무 정보를 제공하지 않을 수 있습니다.")
+
+            with tab4:
+                st.subheader("⚖️ 경쟁사 비교 분석")
+                
+                # 경쟁사 매핑 딕셔너리
+                peer_map = {
+                    'AAPL': 'MSFT', 'MSFT': 'AAPL',
+                    '005930.KS': '000660.KS', '000660.KS': '005930.KS',
+                    'TSLA': 'RIVN', 'RIVN': 'TSLA',
+                    'GOOG': 'META', 'META': 'GOOG',
+                    'NVDA': 'AMD', 'AMD': 'NVDA'
+                }
+                
+                base_ticker = ticker.strip().upper()
+                suggested_peer = peer_map.get(base_ticker, "")
+                
+                col_p1, col_p2 = st.columns([2, 1])
+                with col_p1:
+                    peer_ticker = st.text_input("비교할 경쟁사 티커를 입력하세요:", value=suggested_peer, key="peer_input").strip().upper()
+                
+                if peer_ticker:
+                    with st.spinner(f"{base_ticker} vs {peer_ticker} 비교 중..."):
+                        info1, _ = fetch_financial_data(base_ticker)
+                        info2, _ = fetch_financial_data(peer_ticker)
+                        
+                        if info1 and info2:
+                            # 데이터 추출
+                            def extract_metrics(info, t):
+                                return {
+                                    'Ticker': t,
+                                    'PER': info.get("forwardPE") or info.get("trailingPE"),
+                                    'PBR': info.get("priceToBook"),
+                                    'ROE': (info.get("returnOnEquity") * 100) if info.get("returnOnEquity") else None,
+                                    'YTD': get_ytd_return(t)
+                                }
+                            
+                            m1 = extract_metrics(info1, base_ticker)
+                            m2 = extract_metrics(info2, peer_ticker)
+                            
+                            # 비교표 시각화
+                            comp_data = {
+                                "지표": ["PER (낮을수록 우수)", "PBR (낮을수록 우수)", "ROE (%) (높을수록 우수)", "YTD 수익률 (%) (높을수록 우수)"],
+                                base_ticker: [m1['PER'], m1['PBR'], m1['ROE'], m1['YTD']],
+                                peer_ticker: [m2['PER'], m2['PBR'], m2['ROE'], m2['YTD']]
+                            }
+                            comp_df = pd.DataFrame(comp_data)
+                            
+                            # 하이라이트 함수 (PER, PBR은 낮은 것, ROE, YTD는 높은 것)
+                            def highlight_better(s):
+                                if s.name == "지표": return [''] * len(s)
+                                res = []
+                                for i, val in enumerate(s):
+                                    other_val = comp_df.iloc[i, 2 if s.name == base_ticker else 1]
+                                    if val is None or other_val is None:
+                                        res.append('')
+                                        continue
+                                    
+                                    is_better = False
+                                    if i < 2: # PER, PBR (낮을수록 좋음)
+                                        if val < other_val: is_better = True
+                                    else: # ROE, YTD (높을수록 좋음)
+                                        if val > other_val: is_better = True
+                                        
+                                    res.append('background-color: rgba(38, 166, 154, 0.3)' if is_better else '')
+                                return res
+
+                            st.table(comp_df.style.apply(highlight_better).format({base_ticker: "{:.2f}", peer_ticker: "{:.2f}"}))
+                            
+                            # 비교 차트
+                            fig_comp = build_comparison_chart(base_ticker, peer_ticker)
+                            if fig_comp:
+                                st.plotly_chart(fig_comp, use_container_width=True)
+                            else:
+                                st.error("수익률 비교 차트를 생성할 수 없습니다.")
+                        else:
+                            st.error("경쟁사 정보를 불러올 수 없습니다. 티커를 확인해 주세요.")
+                else:
+                    st.info("비교할 경쟁사 티커를 입력해 주세요.")
 
             st.success(f"**{ticker}** | {start_date} ~ {end_date} | {len(df)}일 데이터 로드 완료.")
 else:
