@@ -411,13 +411,48 @@ if run_analysis:
             with tab4:
                 st.subheader("⚖️ 경쟁사 비교 분석")
                 
-                # 경쟁사 매핑 딕셔너리
+                # 경쟁사 매핑 딕셔너리 (25+ 쌍)
                 peer_map = {
+                    # Big Tech / Internet
                     'AAPL': 'MSFT', 'MSFT': 'AAPL',
-                    '005930.KS': '000660.KS', '000660.KS': '005930.KS',
-                    'TSLA': 'RIVN', 'RIVN': 'TSLA',
                     'GOOG': 'META', 'META': 'GOOG',
-                    'NVDA': 'AMD', 'AMD': 'NVDA'
+                    'GOOGL': 'META',
+                    'AMZN': 'WMT', 'WMT': 'AMZN',
+                    'NFLX': 'DIS', 'DIS': 'NFLX',
+                    
+                    # Semiconductor
+                    'NVDA': 'AMD', 'AMD': 'NVDA',
+                    'TSM': 'INTC', 'INTC': 'TSM',
+                    'ASML': 'AMAT', 'AMAT': 'ASML',
+                    'AVGO': 'QCOM', 'QCOM': 'AVGO',
+                    'MU': 'WDC', 'WDC': 'MU',
+                    'LRCX': 'AMAT',
+                    
+                    # Automotive / EV
+                    'TSLA': 'RIVN', 'RIVN': 'TSLA',
+                    'TM': 'HMC', 'HMC': 'TM',
+                    'F': 'GM', 'GM': 'F',
+                    
+                    # Finance / Payment
+                    'V': 'MA', 'MA': 'V',
+                    'JPM': 'BAC', 'BAC': 'JPM',
+                    'GS': 'MS', 'MS': 'GS',
+                    
+                    # Consumer / Food
+                    'KO': 'PEP', 'PEP': 'KO',
+                    'NKE': 'ADDYY', 'ADDYY': 'NKE',
+                    'MCD': 'SBUX', 'SBUX': 'MCD',
+                    'COST': 'TGT', 'TGT': 'COST',
+                    
+                    # Korea Market (KOSPI/KOSDAQ)
+                    '005930.KS': '000660.KS', '000660.KS': '005930.KS', # 삼성전자 - SK하이닉스
+                    '005380.KS': '000270.KS', '000270.KS': '005380.KS', # 현대차 - 기아
+                    '035420.KS': '035720.KS', '035720.KS': '035420.KS', # NAVER - 카카오
+                    '068270.KS': '207940.KS', '207940.KS': '068270.KS', # 셀트리온 - 삼성바이오로직스
+                    '373220.KS': '006400.KS', '006400.KS': '373220.KS', # LG에너지솔루션 - 삼성SDI
+                    '005490.KS': '010130.KS', '010130.KS': '005490.KS', # POSCO홀딩스 - 고려아연
+                    '051910.KS': '010950.KS', '010950.KS': '051910.KS', # LG화학 - S-Oil
+                    '000270.KS': '005380.KS' # 기아 - 현대차 (중복 방지용 확인)
                 }
                 
                 base_ticker = ticker.strip().upper()
